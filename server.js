@@ -101,91 +101,76 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, origin: BUSINESS_ORIGIN_ADDRESS });
 });
 
-app.post("/api/bookings", async (req, res) => {
-  const bookingId = uuidv4();
-  const miles = await getMiles(
-    BUSINESS_ORIGIN_ADDRESS,
-    req.body.address
-  );
-  const amount = calculatePrice(miles, req.body.supplies);
+app.post("/api/stripe/webhook", async (req, res) => {
+  let event;
 
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount,
-    currency: "usd",
-    automatic_payment_methods: { enabled: true },
-    metadata: { bookingId }
-  });
-
-  const bookings = readBookings();
-  bookings.push({
-    bookingId,
-    ...req.body,
-    miles,
-    amountCents: amount
-  });
-  writeBookings(bookings);
-
-  res.json({
-    bookingId,
-    clientSecret: paymentIntent.client_secret,
-    amountCents: amount
-  });
-});
-
-app.post(
-  "/api/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const event = stripe.webhooks.constructEvent(
+  try {
+    event = stripe.webhooks.constructEvent(
       req.body,
       req.headers["stripe-signature"],
       process.env.STRIPE_WEBHOOK_SECRET
     );
-
-    if (event.type === "payment_intent.succeeded") {
-      const bookingId =
-        event.data.object.metadata.bookingId;
-
-      const bookings = readBookings();
-      const booking = bookings.find(
-        (b) => b.bookingId === bookingId
-      );
-
- const t = mailer();
-
-if (!t) {
-  console.log("Mailer not configured. Missing SMTP_USER or SMTP_PASS.");
-} else if (!booking) {
-  console.log("No booking found for bookingId:", bookingId);
-} else {
-  // Email customer
-  try {
-    await t.sendMail({
-      from: process.env.SMTP_USER,
-      to: booking.email,
-      subject: "I TURN IN Pickup Confirmed",
-      text: `Your pickup is scheduled for ${booking.pickupDateTimeISO}`
-    });
-    console.log("Customer email sent to:", booking.email);
-  } catch (e) {
-    console.error("Customer email FAILED:", e?.message || e);
+  } catch (err) {
+    console.error("Webhook signature verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Email you (admin)
-  try {
-    await t.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
-      subject: "✅ New Pickup Booked (Paid)",
-      text: `New paid pickup:
+  if (event.type === "payment_intent.succeeded") {
+    const bookingId = event.data?.object?.metadata?.bookingId;
+    console.log("✅ payment_intent.succeeded bookingId:", bookingId);
+
+    const bookings = readBookings();
+    const booking = bookings.find((b) => b.bookingId === bookingId);
+
+    const t = mailer();
+
+    if (!t) {
+      console.log("Mailer not configured. Missing SMTP_USER or SMTP_PASS.");
+    } else if (!booking) {
+      console.log("No booking found for bookingId:", bookingId);
+    } else {
+      const pickupTime =
+        booking.pickupDateTimeISO ||
+        booking.pickupDateTime ||
+        booking.pickupDateTimeISOString ||
+        "(time not provided)";
+
+      // Email customer
+      try {
+        await t.sendMail({
+          from: process.env.SMTP_USER,
+          to: booking.email,
+          subject: "I TURN IN Pickup Confirmed",
+          text: `Your pickup is scheduled for ${pickupTime}.`
+        });
+        console.log("Customer email sent to:", booking.email);
+      } catch (e) {
+        console.error("Customer email FAILED:", e?.message || e);
+      }
+
+      // Email you (admin)
+      try {
+        await t.sendMail({
+          from: process.env.SMTP_USER,
+          to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
+          subject: "✅ New Pickup Booked (Paid)",
+          text: `NEW PAID PICKUP
+
 Name: ${booking.firstName} ${booking.lastName}
+Email: ${booking.email}
 Phone: ${booking.phone}
 Address: ${booking.address}
-Time: ${booking.pickupDateTimeISO}
-Total: $${(booking.amountCents / 100).toFixed(2)}`
-    });
-    console.log("Admin email sent to:", process.env.ADMIN_EMAIL || process.env.SMTP_USER);
-  } catch (e) {
-    console.error("Admin email FAILED:", e?.message || e);
+Time: ${pickupTime}
+Total: $${(booking.amountCents / 100).toFixed(2)}
+
+BookingId: ${booking.bookingId}`
+        });
+        console.log("Admin email sent to:", process.env.ADMIN_EMAIL || process.env.SMTP_USER);
+      } catch (e) {
+        console.error("Admin email FAILED:", e?.message || e);
+      }
+    }
   }
-}
+
+  return res.json({ received: true });
+});
