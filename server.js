@@ -97,7 +97,28 @@ function mailer() {
 app.get("/health", (req, res) => {
   res.json({ ok: true, origin: BUSINESS_ORIGIN_ADDRESS });
 });
-
+// ✅ List all bookings (for Calendar/Admin)
+app.get("/api/bookings", (req, res) => {
+  try {
+    const bookings = readBookings();
+    res.json(bookings);
+  } catch (err) {
+    console.error("GET /api/bookings error:", err);
+    res.status(500).json({ error: "Failed to load bookings" });
+  }
+});
+// ✅ Get one booking by id
+app.get("/api/bookings/:bookingId", (req, res) => {
+  try {
+    const bookings = readBookings();
+    const booking = bookings.find((b) => b.bookingId === req.params.bookingId);
+    if (!booking) return res.status(404).json({ error: "Not found" });
+    res.json(booking);
+  } catch (err) {
+    console.error("GET /api/bookings/:bookingId error:", err);
+    res.status(500).json({ error: "Failed to load booking" });
+  }
+});
 // ✅ Create booking + PaymentIntent
 app.post("/api/bookings", async (req, res) => {
   try {
