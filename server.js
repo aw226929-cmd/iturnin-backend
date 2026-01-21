@@ -151,21 +151,41 @@ app.post(
         (b) => b.bookingId === bookingId
       );
 
-      const t = mailer();
-      if (t && booking) {
-        await t.sendMail({
-          from: "turnreturn@gmail.com",
-          to: booking.email,
-          subject: "I TURN IN Pickup Confirmed",
-          text: `Your pickup is scheduled for ${booking.pickupDateTimeISO}`
-        });
-      }
-    }
+ const t = mailer();
 
-    res.json({ received: true });
+if (!t) {
+  console.log("Mailer not configured. Missing SMTP_USER or SMTP_PASS.");
+} else if (!booking) {
+  console.log("No booking found for bookingId:", bookingId);
+} else {
+  // Email customer
+  try {
+    await t.sendMail({
+      from: process.env.SMTP_USER,
+      to: booking.email,
+      subject: "I TURN IN Pickup Confirmed",
+      text: `Your pickup is scheduled for ${booking.pickupDateTimeISO}`
+    });
+    console.log("Customer email sent to:", booking.email);
+  } catch (e) {
+    console.error("Customer email FAILED:", e?.message || e);
   }
-);
 
-app.listen(process.env.PORT || 4000, () => {
-  console.log("I TURN IN backend running");
-});
+  // Email you (admin)
+  try {
+    await t.sendMail({
+      from: process.env.SMTP_USER,
+      to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
+      subject: "✅ New Pickup Booked (Paid)",
+      text: `New paid pickup:
+Name: ${booking.firstName} ${booking.lastName}
+Phone: ${booking.phone}
+Address: ${booking.address}
+Time: ${booking.pickupDateTimeISO}
+Total: $${(booking.amountCents / 100).toFixed(2)}`
+    });
+    console.log("Admin email sent to:", process.env.ADMIN_EMAIL || process.env.SMTP_USER);
+  } catch (e) {
+    console.error("Admin email FAILED:", e?.message || e);
+  }
+}
