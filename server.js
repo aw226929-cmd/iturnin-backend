@@ -14,10 +14,12 @@ const app = express();
 app.use(cors());
 
 // Allow Stripe webhook raw body
-app.use((req, res, next) => {
-  if (req.originalUrl === "/api/stripe/webhook") next();
-  else express.json({ limit: "1mb" })(req, res, next);
+// Stripe webhook needs raw body:
+app.post("/api/stripe/webhook", async (req, res) => {
+  // ...
 });
+// Everything else uses JSON:
+app.use(express.json({ limit: "1mb" }));
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
