@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import Stripe from "stripe";
+import fetch from "node-fetch";
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
@@ -12,12 +13,8 @@ dotenv.config();
 const app = express();
 app.use(cors());
 
-// Allow Stripe webhook raw body
-// Stripe webhook needs raw body:
-app.post("/api/stripe/webhook", async (req, res) => {
-  // ...
-});
-// Everything else uses JSON:
+// Stripe webhook needs raw body, everything else JSON
+app.use("/api/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
